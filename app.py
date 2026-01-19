@@ -7,7 +7,11 @@ import streamlit as st
 from text_analyzer import (
     count_absolutist_words,
     count_first_person_pronouns,
-    count_total_words
+    count_total_words,
+    analyze_burnout_topics,
+    get_top_burnout_topics,
+    get_burnout_insight,
+    calculate_burnout_risk
 )
 
 
@@ -23,8 +27,8 @@ def main():
     # Title and description
     st.title("🧠 MindLog AI - Mental Health Journaling")
     st.markdown("""
-    Analyze your journal entries to detect potential burnout signals.
-    Enter your thoughts below and click 'Analyze' to see insights.
+    Analyze your journal entries to detect potential burnout signals using topic modeling.
+    Heavy weighting on topics found in r/burnout and r/depression (e.g., Work Overload, Sleep Disturbance, Emotional Exhaustion).
     """)
     
     # Text input area
@@ -42,6 +46,14 @@ def main():
             absolutist_count = count_absolutist_words(diary_entry)
             pronouns_count = count_first_person_pronouns(diary_entry)
             
+            # Topic modeling for burnout detection
+            burnout_topics = analyze_burnout_topics(diary_entry)
+            top_topics = get_top_burnout_topics(diary_entry, top_n=5)
+            burnout_insight = get_burnout_insight(diary_entry)
+            
+            # Calculate direct burnout risk assessment
+            burnout_assessment = calculate_burnout_risk(diary_entry)
+            
             # Calculate frequencies (per 100 words)
             if total_words > 0:
                 absolutist_frequency = (absolutist_count / total_words) * 100
@@ -50,9 +62,84 @@ def main():
                 absolutist_frequency = 0
                 pronouns_frequency = 0
             
-            # Display results
+            # Display Direct Burnout Analysis (Primary Feature)
             st.markdown("---")
-            st.subheader("📊 Analysis Results")
+            st.subheader("🔥 Burnout Risk Assessment")
+            
+            # Display risk score and level
+            col_score1, col_score2 = st.columns([1, 2])
+            with col_score1:
+                # Color code based on risk level
+                risk_colors = {
+                    "Severe": "#FF0000",
+                    "High": "#FF6B6B",
+                    "Moderate": "#FFA500",
+                    "Low": "#4CAF50"
+                }
+                risk_color = risk_colors.get(burnout_assessment["risk_level"], "#666666")
+                st.markdown(
+                    f"""
+                    <div style="text-align: center; padding: 20px; background-color: {risk_color}20; border-radius: 10px; border: 2px solid {risk_color};">
+                        <h2 style="margin: 0; color: {risk_color};">{burnout_assessment['risk_score']:.0f}</h2>
+                        <p style="margin: 5px 0 0 0; color: {risk_color}; font-weight: bold;">{burnout_assessment['risk_level']} Risk</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            
+            with col_score2:
+                st.markdown(burnout_assessment["interpretation"])
+            
+            # Display recommendations
+            if burnout_assessment["recommendations"]:
+                st.markdown("#### 💡 Recommendations:")
+                for i, rec in enumerate(burnout_assessment["recommendations"], 1):
+                    st.markdown(f"{i}. {rec}")
+            
+            # Display Topic Modeling Section
+            st.markdown("---")
+            st.subheader("🔍 Topic Modeling Details")
+            
+            # Show topic modeling insight
+            st.markdown(f"**{burnout_insight}**")
+            
+            # Display top burnout topics with correlation scores
+            if top_topics and top_topics[0][1] > 0:
+                st.markdown("#### Top Burnout Topic Correlations:")
+                
+                # Filter out topics with zero scores
+                filtered_topics = [(topic_name, score) for topic_name, score in top_topics if score > 0]
+                
+                if filtered_topics:
+                    # Create columns based on actual number of topics to display (max 3 columns)
+                    num_cols = min(len(filtered_topics), 3)
+                    cols = st.columns(num_cols)
+                    
+                    for idx, (topic_name, score) in enumerate(filtered_topics):
+                        with cols[idx % num_cols]:
+                            # Display as a chip/tag with score
+                            percentage = score * 100
+                            st.markdown(
+                                f"""
+                                <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin: 5px 0; color: #262730;">
+                                    <strong style="color: #262730; font-size: 16px;">{topic_name}</strong><br>
+                                    <small style="color: #505050; font-size: 14px;">Correlation: {percentage:.1f}%</small>
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                
+                # Show detailed topic breakdown
+                with st.expander("View All Topic Correlations"):
+                    for topic_name, score in sorted(burnout_topics.items(), key=lambda x: x[1], reverse=True):
+                        if score > 0:
+                            st.progress(score, text=f"{topic_name}: {score*100:.1f}%")
+            else:
+                st.info("No significant burnout topic correlations detected.")
+            
+            # Display basic metrics
+            st.markdown("---")
+            st.subheader("📊 Basic Metrics")
             
             # Create columns for better layout
             col1, col2, col3 = st.columns(3)
@@ -76,7 +163,7 @@ def main():
             
             # Additional insights section
             st.markdown("---")
-            st.subheader("💡 Insights")
+            st.subheader("💡 Additional Insights")
             
             if absolutist_count > 0:
                 st.info(
@@ -85,8 +172,6 @@ def main():
                     "High use of absolutist words (like 'always', 'never', 'completely') "
                     "may indicate stress or negative thinking patterns."
                 )
-            else:
-                st.success("No absolutist words detected in your entry.")
             
             if pronouns_count > 0:
                 st.info(
@@ -94,8 +179,6 @@ def main():
                     f"first-person pronoun(s) ({pronouns_frequency:.2f} per 100 words). "
                     "This indicates how much you're focusing on yourself in your thoughts."
                 )
-            else:
-                st.info("No first-person pronouns detected in your entry.")
                 
         else:
             st.warning("Please enter some text before analyzing.")
